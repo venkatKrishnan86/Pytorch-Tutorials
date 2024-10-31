@@ -220,11 +220,15 @@ class Agent:
 
     def choose_action(
         self, 
-        state: torch.Tensor
+        state: torch.Tensor,
+        train = True
     ):
         self.actor.eval()
         state = state.to(self.actor.device)
-        action = self.actor(state) + self.noise().to(self.actor.device)
+        if train:
+            action = self.actor(state) + self.noise().to(self.actor.device)
+        else:
+            action = self.actor(state)
         self.actor.train()
 
         return action.cpu().detach().numpy()
