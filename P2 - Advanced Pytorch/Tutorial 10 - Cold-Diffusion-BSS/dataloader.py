@@ -5,13 +5,16 @@ from torch import nn
 from torch.utils.data import Dataset
 from torchaudio.transforms import Resample
 from tqdm import tqdm
+from augmentation_utils import pitch_augment, time_augment, phase_vocoder
 
 class MUSDBHQ18(Dataset):
     def __init__(
         self, 
         data_loc = "/home/venkatakrishnan/Desktop/datasets/MUSDBHQ-18/", 
         train = True,
-        chunk_dur = 4
+        chunk_dur = 4,
+        hop_size = 2,
+        target_sr = 16000
     ):
         super(MUSDBHQ18, self).__init__()
         if train:
@@ -24,14 +27,13 @@ class MUSDBHQ18(Dataset):
         for path, _, files in tqdm(os.walk(data_loc), position=0):
             print(path)
             components = [None, None]   # Vocals, Mixture
-            sr = 44100
             for file in files:
                 if file=="vocals.wav":
                     components[0], sr = torchaudio.load(path+"/"+file, normalize=True, channels_first=True)
-                    components[0] = Resample(orig_freq=sr, new_freq=16000)(components[0])
+                    components[0] = Resample(orig_freq=sr, new_freq=target_sr)(components[0])
                 elif file=="mixture.wav":
                     components[1], sr = torchaudio.load(path+"/"+file, normalize=True, channels_first=True)
-                    components[1] = Resample(orig_freq=sr, new_freq=16000)(components[1])
+                    components[1] = Resample(orig_freq=sr, new_freq=target_sr)(components[1])
                 # elif file=="bass.wav":
                 #     components[2], sr = torchaudio.load(path+"/"+file, normalize=True, channels_first=True)
                 # elif file=="drums.wav":
@@ -44,9 +46,9 @@ class MUSDBHQ18(Dataset):
                 if component is None:
                     flag = False
 
-            chunk_samples = sr*chunk_dur
-
             if flag:    # If all components have been initialized
+                chunk_samples = target_sr*chunk_dur
+                hop_samples = target_sr*hop_size
                 new_components = components
                 for i, component in enumerate(components):
                     duration = component.shape[-1]
@@ -56,7 +58,7 @@ class MUSDBHQ18(Dataset):
                             waveform=component, 
                             length_req=duration+extra_length_reqd
                         )
-                self.add_to_data(new_components, chunk_samples, chunk_samples//2)
+                self.add_to_data(new_components, chunk_samples, hop_samples)
             
     def _right_pad(
         self, 
@@ -83,7 +85,7 @@ class MUSDBHQ18(Dataset):
     def add_to_data(self, new_components, chunk_samples, hop_size):
         new_duration = new_components[0].shape[-1]
         pointer = 0
-        while pointer<new_duration:
+        while pointer<new_duration - chunk_samples:
             self.data.append(
                 (new_components[0][:, pointer : pointer + chunk_samples], 
                  new_components[1][:, pointer : pointer + chunk_samples])
@@ -98,10 +100,10 @@ class MUSDBHQ18(Dataset):
         return self.data[index]
     
 if __name__=="__main__":
-    dataset = MUSDBHQ18(train=True, chunk_dur=2)
+    dataset = MUSDBHQ18(train=True, chunk_dur=2, hop_size=1)
     torch.save(dataset, "data/train.pt")
 
-    dataset = MUSDBHQ18(train=False, chunk_dur=2)
+    dataset = MUSDBHQ18(train=False, chunk_dur=2, hop_size=2)
     torch.save(dataset, "data/test.pt")
     print(len(dataset))
     print(dataset[100])
